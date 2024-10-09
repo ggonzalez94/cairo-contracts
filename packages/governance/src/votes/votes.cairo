@@ -33,9 +33,7 @@ pub mod VotesComponent {
     use openzeppelin_utils::nonces::NoncesComponent::InternalTrait as NoncesInternalTrait;
     use openzeppelin_utils::nonces::NoncesComponent;
     use openzeppelin_utils::structs::checkpoint::{Trace, TraceTrait};
-    use starknet::storage::{
-        Map, StorageMapReadAccess, StorageMapWriteAccess, StoragePointerReadAccess
-    };
+    use starknet::storage::{Map, StoragePathEntry, StorageMapReadAccess, StorageMapWriteAccess};
     use super::{TokenVotesTrait, ContractAddress};
 
     #[storage]
@@ -87,7 +85,7 @@ pub mod VotesComponent {
     > of IVotes<ComponentState<TContractState>> {
         /// Returns the current amount of votes that `account` has.
         fn get_votes(self: @ComponentState<TContractState>, account: ContractAddress) -> u256 {
-            self.Votes_delegate_checkpoints.read(account).latest()
+            self.Votes_delegate_checkpoints.entry(account).latest()
         }
 
         /// Returns the amount of votes that `account` had at a specific moment in the past.
@@ -100,7 +98,7 @@ pub mod VotesComponent {
         ) -> u256 {
             let current_timepoint = starknet::get_block_timestamp();
             assert(timepoint < current_timepoint, Errors::FUTURE_LOOKUP);
-            self.Votes_delegate_checkpoints.read(account).upper_lookup_recent(timepoint)
+            self.Votes_delegate_checkpoints.entry(account).upper_lookup_recent(timepoint)
         }
 
         /// Returns the total supply of votes available at a specific moment in the past.
@@ -111,7 +109,7 @@ pub mod VotesComponent {
         fn get_past_total_supply(self: @ComponentState<TContractState>, timepoint: u64) -> u256 {
             let current_timepoint = starknet::get_block_timestamp();
             assert(timepoint < current_timepoint, Errors::FUTURE_LOOKUP);
-            self.Votes_total_checkpoints.read().upper_lookup_recent(timepoint)
+            self.Votes_total_checkpoints.deref().upper_lookup_recent(timepoint)
         }
 
         /// Returns the delegate that `account` has chosen.
@@ -259,15 +257,15 @@ pub mod VotesComponent {
             let block_timestamp = starknet::get_block_timestamp();
             if from != to && amount > 0 {
                 if from.is_non_zero() {
-                    let mut trace = self.Votes_delegate_checkpoints.read(from);
+                    let trace = self.Votes_delegate_checkpoints.entry(from);
                     let (previous_votes, new_votes) = trace
-                        .push(block_timestamp, trace.latest() - amount);
+                        .push(block_timestamp, trace.into().latest() - amount);
                     self.emit(DelegateVotesChanged { delegate: from, previous_votes, new_votes });
                 }
                 if to.is_non_zero() {
-                    let mut trace = self.Votes_delegate_checkpoints.read(to);
+                    let trace = self.Votes_delegate_checkpoints.entry(to);
                     let (previous_votes, new_votes) = trace
-                        .push(block_timestamp, trace.latest() + amount);
+                        .push(block_timestamp, trace.into().latest() + amount);
                     self.emit(DelegateVotesChanged { delegate: to, previous_votes, new_votes });
                 }
             }
@@ -287,12 +285,12 @@ pub mod VotesComponent {
         ) {
             let block_timestamp = starknet::get_block_timestamp();
             if from.is_zero() {
-                let mut trace = self.Votes_total_checkpoints.read();
-                trace.push(block_timestamp, trace.latest() + amount);
+                let mut trace = self.Votes_total_checkpoints.deref();
+                trace.push(block_timestamp, trace.into().latest() + amount);
             }
             if to.is_zero() {
-                let mut trace = self.Votes_total_checkpoints.read();
-                trace.push(block_timestamp, trace.latest() - amount);
+                let mut trace = self.Votes_total_checkpoints.deref();
+                trace.push(block_timestamp, trace.into().latest() - amount);
             }
             self.move_delegate_votes(self.delegates(from), self.delegates(to), amount);
         }
